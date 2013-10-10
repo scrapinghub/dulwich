@@ -133,6 +133,7 @@ def self_test_suite():
         'server',
         'walk',
         'web',
+        'swift',
         ]
     module_names = ['dulwich.tests.test_' + name for name in names]
     loader = unittest.TestLoader()
