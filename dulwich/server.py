@@ -277,7 +277,7 @@ class UploadPackHandler(Handler):
 
         # Did the process short-circuit (e.g. in a stateless RPC call)? Note
         # that the client still expects a 0-object pack in most cases.
-        if objects_iter is None:
+        if len(objects_iter) == 0:
             return
 
         self.progress("dul-daemon says what\n")
@@ -380,7 +380,7 @@ class ProtocolGraphWalker(object):
             self.proto.write_pkt_line(None)
 
             if self.advertise_refs:
-                return None
+                return [] 
 
         # Now client will sending want want want commands
         want = self.proto.read_pkt_line()

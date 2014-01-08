@@ -221,6 +221,9 @@ def load_pack_info(filename, scon=None, file=None):
 class SwiftException(Exception):
     pass
 
+class InvalidRepoException(Exception):
+    pass
+
 
 class SwiftConnector(object):
     """A Connector to swift that manage authentication and errors catching
@@ -900,10 +903,10 @@ class SwiftRepo(BaseRepo):
         self.scon = SwiftConnector(self.root, self.conf)
         objects = self.scon.get_container_objects()
         if not objects:
-            raise Exception('There is not any GIT repo here : %s' % self.root)
+            raise InvalidRepoException('There is not any GIT repo here : %s' % self.root)
         objects = [o['name'].split('/')[0] for o in objects]
         if OBJECTDIR not in objects:
-            raise Exception('This repository (%s) is not bare.' % self.root)
+            raise InvalidRepoException('This repository (%s) is not bare.' % self.root)
         self.bare = True
         self._controldir = self.root
         object_store = SwiftObjectStore(self.scon)
