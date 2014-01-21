@@ -129,7 +129,7 @@ along with the pack, we add a third file (pack-sha.info). This file
 is automatically created when a client pushes some references on the
 repository. The purpose of this file is to speed up pack creation
 server side when a client fetches some references. Currently this
-.info format is not optimized and may change in futur.
+.info format is not optimized and may change in future.
 
 How to report a bug
 -------------------
