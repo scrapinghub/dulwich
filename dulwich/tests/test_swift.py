@@ -107,6 +107,9 @@ class Response(object):
     def __getitem__(self, key):
         return self.headers[key]
 
+    def items(self):
+        return self.headers
+
     def iteritems(self):
         for k, v in self.headers.iteritems():
             yield k, v
@@ -120,6 +123,11 @@ def fake_auth_request_v1(*args, **kwargs):
                     'http://127.0.0.1:8080/v1.0/AUTH_fakeuser',
                     'X-Auth-Token': '12' * 10},
                    200)
+    return ret
+
+def fake_auth_request_v1_error(*args, **kwargs):
+    ret = Response({},
+                   401)
     return ret
 
 
@@ -513,6 +521,13 @@ class TestSwiftConnector(TestCase):
             conn = swift.SwiftConnector('fakerepo', conf=self.conf)
         self.assertEqual(conn.user, 'tester')
         self.assertEqual(conn.tenant, 'test')
+        self.conf.set('swift', 'auth_ver', '1')
+        self.conf.set('swift', 'auth_url', 'http://127.0.0.1:8080/auth/v1.0')
+        with patch('geventhttpclient.HTTPClient.request',
+                   fake_auth_request_v1_error):
+            self.assertRaises(swift.SwiftException,
+                              lambda: swift.SwiftConnector('fakerepo',
+                                                           conf=self.conf))
 
     def test_root_exists(self):
         with patch('geventhttpclient.HTTPClient.request',

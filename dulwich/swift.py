@@ -284,7 +284,7 @@ class SwiftConnector(object):
 
         # Should do something with redirections (301 in my case)
 
-        if ret.status_code != 200 and ret.status_code != 204:
+        if ret.status_code < 200 or ret.status_code >= 300:
             raise SwiftException('AUTH v1.0 request failed on ' +
                                  '%s with error code %s (%s)'
                                  % (str(auth_httpclient.get_base_url()) +
@@ -319,12 +319,12 @@ class SwiftConnector(object):
                                       body=auth_json,
                                       headers=headers)
 
-        if ret.status_code != 200 and ret.status_code != 203:
-            raise SwiftException('AUTH v2.0 request failed on %s' +
-                                 ' with error code %s (%s)'
-                                 % (ret.status_code,
-                                    str(auth_httpclient.get_base_url()) +
+        if ret.status_code < 200 or ret.status_code >= 300:
+            raise SwiftException('AUTH v2.0 request failed on ' +
+                                 '%s with error code %s (%s)'
+                                 % (str(auth_httpclient.get_base_url()) +
                                     prefix_uri,
+                                    ret.status_code,
                                     str(ret.items())))
         auth_ret_json = json_loads(ret.read())
         token = auth_ret_json['access']['token']['id']
