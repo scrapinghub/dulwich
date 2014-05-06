@@ -100,7 +100,7 @@ password = pass
 # The Object storage region to use (auth v2) (Default RegionOne)
 region_name = RegionOne
 # The Object storage endpoint URL to use (auth v2) (Default internalURL)
-enpoint_type = internalURL
+endpoint_type = internalURL
 # Concurrency to use for parallel tasks (Default 10)
 concurrency = 10
 # Size of the HTTP pool (Default 10)
@@ -256,16 +256,16 @@ class SwiftConnector(object):
         else:
             self.storage_url, self.token = self.swift_auth_v2()
 
-        token_header = {'X-Auth-Token': self.token}
+        token_header = {'X-Auth-Token': str(self.token)}
         self.httpclient = \
-            HTTPClient.from_url(self.storage_url,
+            HTTPClient.from_url(str(self.storage_url),
                                 concurrency=self.http_pool_length,
                                 block_size=block_size,
                                 connection_timeout=self.http_timeout,
                                 network_timeout=self.http_timeout,
                                 headers=token_header)
-        self.base_path = posixpath.join(urlparse(self.storage_url).path,
-                                        self.root)
+        self.base_path = str(posixpath.join(urlparse(self.storage_url).path,
+                             self.root))
 
     def swift_auth_v1(self):
         self.user = self.user.replace(";", ":")
@@ -276,10 +276,10 @@ class SwiftConnector(object):
             )
         headers = {'X-Auth-User': self.user,
                    'X-Auth-Key': self.password}
-        prefix_uri = urlparse(self.auth_url).path
+        path = urlparse(self.auth_url).path
 
         ret = auth_httpclient.request('GET',
-                                      prefix_uri,
+                                      path,
                                       headers=headers)
 
         # Should do something with redirections (301 in my case)
@@ -288,8 +288,7 @@ class SwiftConnector(object):
             raise SwiftException('AUTH v1.0 request failed on ' +
                                  '%s with error code %s (%s)'
                                  % (str(auth_httpclient.get_base_url()) +
-                                    prefix_uri,
-                                    ret.status_code,
+                                    path, ret.status_code,
                                     str(ret.items())))
         storage_url = ret['X-Storage-Url']
         token = ret['X-Auth-Token']
@@ -311,11 +310,11 @@ class SwiftConnector(object):
             connection_timeout=self.http_timeout,
             network_timeout=self.http_timeout,
             )
-        prefix_uri = urlparse(self.auth_url).path
-        if not prefix_uri.endswith('tokens'):
-            prefix_uri = posixpath.join(prefix_uri, '/tokens')
+        path = urlparse(self.auth_url).path
+        if not path.endswith('tokens'):
+            path = posixpath.join(path, 'tokens')
         ret = auth_httpclient.request('POST',
-                                      prefix_uri,
+                                      path,
                                       body=auth_json,
                                       headers=headers)
 
@@ -323,8 +322,7 @@ class SwiftConnector(object):
             raise SwiftException('AUTH v2.0 request failed on ' +
                                  '%s with error code %s (%s)'
                                  % (str(auth_httpclient.get_base_url()) +
-                                    prefix_uri,
-                                    ret.status_code,
+                                    path, ret.status_code,
                                     str(ret.items())))
         auth_ret_json = json_loads(ret.read())
         token = auth_ret_json['access']['token']['id']
