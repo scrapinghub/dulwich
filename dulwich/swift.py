@@ -359,6 +359,21 @@ class SwiftConnector(object):
                 raise SwiftException('PUT request failed with error code %s'
                                      % ret.status_code)
 
+    def list_root_containers(self):
+        """List all root containers."""
+        qs = '?format=json'
+        path = self.storage_url + qs
+        ret = self.httpclient.request('GET',
+                                      path)
+        if ret.status_code == 404:
+            return None
+        if ret.status_code < 200 or ret.status_code > 300:
+            raise SwiftException('GET request failed with error code %s'
+                                 % ret.status_code)
+        content = ret.read()
+        json_contents = json_loads(content)
+        return map(lambda x: x.get('name'), json_contents)
+
     def get_container_objects(self):
         """Retrieve objects list in a container
 
@@ -921,9 +936,13 @@ class SwiftRepo(BaseRepo):
         self.scon.put_object(filename, f)
         f.close()
     
-     def head(self):
+    def head(self):
         """Return the SHA1 pointed at by HEAD."""
-        return self.refs.get('HEAD', self.refs['refs/heads/master'])
+        return self.refs['refs/heads/master']
+
+    @classmethod
+    def list_repos(cls, scon):
+        return scon.list_root_containers()
 
     @classmethod
     def init_bare(cls, scon, conf):
