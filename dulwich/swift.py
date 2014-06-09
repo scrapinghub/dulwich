@@ -920,6 +920,10 @@ class SwiftRepo(BaseRepo):
         f.write(contents)
         self.scon.put_object(filename, f)
         f.close()
+    
+     def head(self):
+        """Return the SHA1 pointed at by HEAD."""
+        return self.refs.get('HEAD', self.refs['refs/heads/master'])
 
     @classmethod
     def init_bare(cls, scon, conf):
