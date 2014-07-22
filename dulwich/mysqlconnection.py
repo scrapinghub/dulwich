@@ -1,14 +1,27 @@
 import os
+import urlparse
 import mysql.connector
 
-connection_pool = None
 
-DB_CONFIG = {
-	"host": os.environ.get('DB_HOST') or "33.33.33.51",
-	"database": os.environ.get('DB_NAME') or "portia",
-	"user": os.environ.get('DB_USER') or "portia",
-	"password": os.environ.get('DB_PASS') or "portia"
-}
+def parse(url):
+    """Parses a database URL."""
+    url = urlparse.urlparse(url)
+    # Remove query strings.
+    path = url.path[1:]
+    path = path.split('?', 2)[0]
+    config = {
+        'host': url.hostname or '',
+        'port': url.port or '',
+        'database': path or '',
+        'user': url.username or '',
+        'password': url.password or '',
+    }
+    return config
+
+
+DB_CONFIG = parse(os.environ.get('DB_URL'))
+
+connection_pool = None
 
 POOL_NAME = "PORTIA"
 
@@ -18,13 +31,17 @@ USE_PREPARED_STATEMENTS = False
 
 
 def get_connection():
-	global connection_pool
-	if not connection_pool:
-		connection_pool = mysql.connector.pooling.MySQLConnectionPool(
+    global connection_pool
+    if not connection_pool:
+        connection_pool = mysql.connector.pooling.MySQLConnectionPool(
 			pool_name=POOL_NAME,
 			pool_size = POOL_SIZE,
 			**DB_CONFIG)
-	return connection_pool.get_connection()
+    connection = connection_pool.get_connection()
+    cursor = connection.cursor()
+    cursor.execute('SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED;')
+    cursor.close()
+    return connection
 
 
 def dbcursor(func):
