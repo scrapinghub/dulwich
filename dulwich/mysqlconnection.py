@@ -11,7 +11,7 @@ def parse(url):
     path = path.split('?', 2)[0]
     config = {
         'host': url.hostname or '',
-        'port': url.port or '',
+        'port': url.port or 3306,
         'database': path or '',
         'user': url.username or '',
         'password': url.password or '',
