@@ -268,10 +268,9 @@ class MysqlRepo(BaseRepo):
             '  `size` bigint(20) unsigned NOT NULL,'
             '  `data` longblob NOT NULL,'
             '  `repo` varchar(64) NOT NULL,'
-            '  PRIMARY KEY (`oid`),'
+            '  PRIMARY KEY (`oid`, `repo`),'
             '  KEY `type` (`type`),'
-            '  KEY `size` (`size`),'
-            '  KEY `repo` (`repo`)'
+            '  KEY `size` (`size`)'
             ') ENGINE="InnoDB" DEFAULT CHARSET=utf8 COLLATE=utf8_bin')
         cursor.execute(sql)
         
@@ -280,9 +279,8 @@ class MysqlRepo(BaseRepo):
             '  `ref` varchar(100) NOT NULL DEFAULT "",'
             '  `value` binary(40) NOT NULL,'
             '  `repo` varchar(64) NOT NULL,'
-            '  PRIMARY KEY (`ref`),'
-            '  KEY `value` (`value`),'
-            '  KEY `repo` (`repo`)'
+            '  PRIMARY KEY (`ref`, `repo`),'
+            '  KEY `value` (`value`)'
             ') ENGINE="InnoDB" DEFAULT CHARSET=utf8 COLLATE=utf8_bin')
         cursor.execute(sql)
         
@@ -321,6 +319,5 @@ class MysqlRepo(BaseRepo):
     def delete_repo(cls, name, cursor):
         """Deletes a repository.
         """
-        obj_table, ref_table =  MysqlRepo._table_names(name)
         cursor.execute("DELETE FROM `objs` WHERE `repo`=%s", (name,))
         cursor.execute("DELETE FROM `refs` WHERE `repo`=%s", (name,))
