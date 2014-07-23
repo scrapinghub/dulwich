@@ -7,10 +7,16 @@ from dulwich.mysqlconnection import dbcursor
 class MysqlObjectStore(BaseObjectStore):
     """Object store that keeps all objects in a mysql database."""
 
-    def __init__(self, table):
+    statements = {
+        "HAS": "SELECT EXISTS(SELECT 1 FROM objs WHERE `oid`=%s AND `repo`=%s)",
+        "ALL": "SELECT `oid` FROM objs WHERE `repo`=%s",
+        "GET": "SELECT `type`, UNCOMPRESS(`data`) FROM objs WHERE `oid`=%s AND `repo`=%s",
+        "ADD": "INSERT IGNORE INTO objs VALUES(%s, %s, %s, COMPRESS(%s), %s)",
+    }
+
+    def __init__(self, repo):
         super(MysqlObjectStore, self).__init__()
-        self._table = table
-        self._statements = self._create_sql_statements(table)
+        self._repo = repo
 
     def _to_hexsha(self, sha):
         if len(sha) == 40:
@@ -20,28 +26,17 @@ class MysqlObjectStore(BaseObjectStore):
         else:
             raise ValueError("Invalid sha %r" % (sha,))
 
-    def _create_sql_statements(self, tablename):
-        statements = {
-            "HAS": "SELECT EXISTS(SELECT 1 FROM `{}` WHERE `oid` = %s)",
-            "ALL": "SELECT `oid` FROM `{}`",
-            "GET": "SELECT `type`, UNCOMPRESS(`data`) FROM `{}` WHERE `oid` = %s",
-            "ADD": "INSERT IGNORE INTO `{}` VALUES(%s, %s, %s, COMPRESS(%s))",
-        }
-        for k, s in statements.iteritems():
-            statements[k] = s.format(tablename)
-        return statements
-
     @dbcursor
     def _has_sha(self, sha, cursor):
         """Look for the sha in the database."""
-        cursor.execute(self._statements["HAS"], (sha,))
+        cursor.execute(MysqlObjectStore.statements["HAS"], (sha, self._repo))
         row = cursor.fetchone()
         return row[0] == 1
 
     @dbcursor
     def _all_shas(self, cursor):
         """Return all db sha keys."""
-        cursor.execute(self._statements["ALL"])
+        cursor.execute(MysqlObjectStore.statements["ALL"], self._repo)
         shas = (t[0] for t in cursor.fetchall())
         return shas
 
@@ -69,7 +64,8 @@ class MysqlObjectStore(BaseObjectStore):
         :param name: sha for the object.
         :return: tuple with numeric type and object contents.
         """
-        cursor.execute(self._statements["GET"], (self._to_hexsha(name),))
+        cursor.execute(MysqlObjectStore.statements["GET"],
+            (self._to_hexsha(name), self._repo))
         row = cursor.fetchone()
         return row
 
@@ -77,7 +73,8 @@ class MysqlObjectStore(BaseObjectStore):
         data = obj.as_raw_string()
         oid = obj.id
         tnum = obj.get_type()        
-        cursor.execute(self._statements["ADD"], (oid, tnum, len(data), data))
+        cursor.execute(MysqlObjectStore.statements["ADD"],
+            (oid, tnum, len(data), data, self._repo))
 
     @dbcursor
     def add_object(self, obj, cursor):
@@ -166,31 +163,27 @@ class MysqlRefsContainer(RefsContainer):
     This container does not support packed references.
     """
 
-    def __init__(self, table):
-        super(MysqlRefsContainer, self).__init__()
-        self._table = table
-        self._peeled = {}
-        self._statements = self._create_sql_statements(table)
+    statements = {
+        "DEL": "DELETE FROM `refs` WHERE `ref`=%s AND `repo`=%s",
+        "ALL": "SELECT `ref` FROM `refs` WHERE `repo`=%s",
+        "GET": "SELECT `value` FROM `refs` WHERE `ref` = %s AND `repo`=%s",
+        "ADD": "REPLACE INTO `refs` VALUES(%s, %s, %s)",
+    }
 
-    def _create_sql_statements(self, tablename):
-        statements = {
-            "DEL": "DELETE FROM `{}` WHERE `ref` = %s",
-            "ALL": "SELECT `ref` FROM `{}`",
-            "GET": "SELECT `value` FROM `{}` WHERE `ref` = %s",
-            "ADD": "REPLACE INTO `{}` VALUES(%s, %s)",
-        }
-        for k, s in statements.iteritems():
-            statements[k] = s.format(tablename)
-        return statements
+    def __init__(self, repo):
+        super(MysqlRefsContainer, self).__init__()
+        self._repo = repo
+        self._peeled = {}
 
     @dbcursor    
     def allkeys(self, cursor):
-        cursor.execute(self._statements["ALL"])
+        cursor.execute(MysqlRefsContainer.statements["ALL"], (self._repo))
         return (t[0] for t in cursor.fetchall())
 
     @dbcursor
     def read_loose_ref(self, name, cursor):
-        cursor.execute(self._statements["GET"], (name,))
+        cursor.execute(MysqlRefsContainer.statements["GET"],
+            (name, self._repo))
         row = cursor.fetchone()
         return row[0] if row else None
 
@@ -198,7 +191,8 @@ class MysqlRefsContainer(RefsContainer):
         return {}
 
     def _update_ref(self, name, value, cursor):
-        cursor.execute(self._statements["ADD"], (name, value))
+        cursor.execute(MysqlRefsContainer.statements["ADD"],
+            (name, value, self._repo))
 
     @dbcursor
     def set_if_equals(self, name, old_ref, new_ref, cursor):
@@ -223,7 +217,8 @@ class MysqlRefsContainer(RefsContainer):
         return True
 
     def _remove_ref(self, name, cursor):
-        cursor.execute(self._statements["DEL"], (name,))
+        cursor.execute(MysqlRefsContainer.statements["DEL"],
+            (name, self._repo))
 
     @dbcursor
     def remove_if_equals(self, name, old_ref, cursor):
@@ -245,13 +240,10 @@ class MysqlRepo(BaseRepo):
     those have a stronger dependency on the filesystem.
     """
 
-    def __init__(self, name, create_repo=False):
+    def __init__(self, name):
         self._name = name
-        ot_name, rt_name = MysqlRepo._table_names(name)
-        if create_repo:
-            self._create_repo(ot_name, rt_name)
         BaseRepo.__init__(self,
-            MysqlObjectStore(ot_name), MysqlRefsContainer(rt_name))
+            MysqlObjectStore(name), MysqlRefsContainer(name))
         self.bare = True
 
     def open_index(self):
@@ -265,73 +257,70 @@ class MysqlRepo(BaseRepo):
         """Return the SHA1 pointed at by HEAD."""
         return self.refs['refs/heads/master']
 
+    @classmethod
     @dbcursor
-    def _create_repo(self, ot_name, rt_name, cursor):
+    def _init_db(self, cursor):
         
         # Object store table.
-        sql = ('CREATE TABLE `%s` ('
+        sql = ('CREATE TABLE IF NOT EXISTS `objs` ('
             '  `oid` binary(40) NOT NULL DEFAULT "",'
             '  `type` tinyint(1) unsigned NOT NULL,'
             '  `size` bigint(20) unsigned NOT NULL,'
             '  `data` longblob NOT NULL,'
+            '  `repo` varchar(64) NOT NULL,'
             '  PRIMARY KEY (`oid`),'
             '  KEY `type` (`type`),'
-            '  KEY `size` (`size`)'
-            ') ENGINE="InnoDB" DEFAULT CHARSET=utf8 COLLATE=utf8_bin') % ot_name
+            '  KEY `size` (`size`),'
+            '  KEY `repo` (`repo`)'
+            ') ENGINE="InnoDB" DEFAULT CHARSET=utf8 COLLATE=utf8_bin')
         cursor.execute(sql)
         
         # Reference store table.
-        sql = ('CREATE TABLE `%s` ('
+        sql = ('CREATE TABLE IF NOT EXISTS `refs` ('
             '  `ref` varchar(100) NOT NULL DEFAULT "",'
             '  `value` binary(40) NOT NULL,'
+            '  `repo` varchar(64) NOT NULL,'
             '  PRIMARY KEY (`ref`),'
-            '  KEY `value` (`value`)'
-            ') ENGINE="InnoDB" DEFAULT CHARSET=utf8 COLLATE=utf8_bin') % rt_name
+            '  KEY `value` (`value`),'
+            '  KEY `repo` (`repo`)'
+            ') ENGINE="InnoDB" DEFAULT CHARSET=utf8 COLLATE=utf8_bin')
         cursor.execute(sql)
         
-        return ot_name, rt_name
-
-    @classmethod
-    def _table_names(cls, name):
-        return name + '_portiarepo_obj', name + '_portiarepo_ref'
-
     @classmethod
     def init_bare(cls, name):
-        """Create a new bare repository in Mysql.
+        """Create a new bare repository.
         """
-        return cls(name, create_repo=True)
+        return cls(name)
 
     @classmethod
     def open(cls, name):
-        """Create a new bare repository in Mysql.
+        """Open an existing repository.
         """
         return cls(name)
 
     @classmethod
     @dbcursor
     def repo_exists(cls, name, cursor):
-        """Checks if a repo exists.
+        """Checks if a repository exists.
         """
-        table_name, _ =  MysqlRepo._table_names(name)
-        cursor.execute("SELECT EXISTS(SELECT 1 FROM information_schema.tables "
-                       "WHERE `table_name` = %s)", (table_name,))
+        cursor.execute("SELECT EXISTS(SELECT 1 FROM `objs` "
+                       "WHERE `repo`=%s)", (name,))
         row = cursor.fetchone()
         return row[0] == 1
 
     @classmethod
     @dbcursor
     def list_repos(cls, cursor):
-        """List all repo names.
+        """List all repository names.
         """
-        cursor.execute("SELECT `table_name` FROM information_schema.tables "
-                       "WHERE `table_name` LIKE '%_portiarepo_obj%'")
-        names = [t[0][0:-len('_portiarepo_obj')] for t in cursor.fetchall()]   
-        return names
+        cursor.execute("SELECT DISTINCT `repo` FROM `objs`")
+        return [t[0] for t in cursor.fetchall()]   
 
     @classmethod
     @dbcursor
     def delete_repo(cls, name, cursor):
-        """Deletes a repo.
+        """Deletes a repository.
         """
         obj_table, ref_table =  MysqlRepo._table_names(name)
-        cursor.execute("DROP TABLES {}, {}".format(obj_table, ref_table))
+        cursor.execute("DELETE FROM `objs` WHERE `repo`=%s", (name,))
+        cursor.execute("DELETE FROM `refs` WHERE `repo`=%s", (name,))
