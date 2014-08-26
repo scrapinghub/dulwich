@@ -71,6 +71,7 @@ setup(name='dulwich',
       The project is named after the part of London that Mr. and Mrs. Git live in
       in the particular Monty Python sketch.
       """,
+      install_requires = ['mysql-connector-python'],
       packages=['dulwich', 'dulwich.tests', 'dulwich.tests.compat'],
       scripts=['bin/dulwich', 'bin/dul-daemon', 'bin/dul-web', 'bin/dul-receive-pack', 'bin/dul-upload-pack'],
       ext_modules=[
