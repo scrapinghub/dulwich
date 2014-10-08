@@ -86,8 +86,10 @@ class MysqlObjectStore(BaseObjectStore):
 
         :param objects: Iterable over a list of objects.
         """
-        for obj, path in objects:
-            self._add_object(obj, cursor)
+        data = ((o.id, o.get_type(), len(o.as_raw_string()),
+            o.as_raw_string(), self._repo)
+                for o in objects)
+        cursor.executemany(MysqlObjectStore.statements["ADD"], data)
 
     @dbcursor
     def add_pack(self, cursor):
