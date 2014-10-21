@@ -1,7 +1,7 @@
 from dulwich.object_store import BaseObjectStore
 from dulwich.repo import BaseRepo
 from dulwich.refs import RefsContainer
-from dulwich.mysqlconnection import dbcursor
+from dulwich.mysqlconnection import dbcursor, set_db_url
 
 
 class MysqlObjectStore(BaseObjectStore):
@@ -88,7 +88,7 @@ class MysqlObjectStore(BaseObjectStore):
         """
         data = ((o.id, o.get_type(), len(o.as_raw_string()),
             o.as_raw_string(), self._repo)
-                for o in objects)
+                for (o, _) in objects)
         cursor.executemany(MysqlObjectStore.statements["ADD"], data)
 
     @dbcursor
@@ -285,6 +285,10 @@ class MysqlRepo(BaseRepo):
             '  KEY `value` (`value`)'
             ') ENGINE="InnoDB" DEFAULT CHARSET=utf8 COLLATE=utf8_bin')
         cursor.execute(sql)
+
+    @classmethod
+    def setup(cls, location):
+        set_db_url(location)
         
     @classmethod
     def init_bare(cls, name):

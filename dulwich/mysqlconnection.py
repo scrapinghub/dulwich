@@ -3,7 +3,7 @@ import urlparse
 import mysql.connector
 
 
-def parse(url):
+def _parse(url):
     """Parses a database URL."""
     url = urlparse.urlparse(url)
     # Remove query strings.
@@ -19,7 +19,12 @@ def parse(url):
     return config
 
 
-DB_CONFIG = parse(os.environ.get('DB_URL'))
+DB_CONFIG = 'DB_URL' in os.environ and _parse(os.environ['DB_URL']) or {}
+
+
+def set_db_url(url):
+    DB_CONFIG = _parse(url)
+
 
 connection_pool = None
 
