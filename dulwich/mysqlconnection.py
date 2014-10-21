@@ -23,6 +23,7 @@ DB_CONFIG = 'DB_URL' in os.environ and _parse(os.environ['DB_URL']) or {}
 
 
 def set_db_url(url):
+    global DB_CONFIG
     DB_CONFIG = _parse(url)
 
 
