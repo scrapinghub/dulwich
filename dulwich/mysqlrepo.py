@@ -179,7 +179,7 @@ class MysqlRefsContainer(RefsContainer):
 
     @dbcursor    
     def allkeys(self, cursor):
-        cursor.execute(MysqlRefsContainer.statements["ALL"], (self._repo))
+        cursor.execute(MysqlRefsContainer.statements["ALL"], (self._repo,))
         return (t[0] for t in cursor.fetchall())
 
     @dbcursor
