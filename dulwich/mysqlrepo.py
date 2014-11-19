@@ -11,7 +11,8 @@ class MysqlObjectStore(BaseObjectStore):
         "HAS": "SELECT EXISTS(SELECT 1 FROM objs WHERE `oid`=%s AND `repo`=%s)",
         "ALL": "SELECT `oid` FROM objs WHERE `repo`=%s",
         "GET": "SELECT `type`, UNCOMPRESS(`data`) FROM objs WHERE `oid`=%s AND `repo`=%s",
-        "ADD": "INSERT IGNORE INTO objs VALUES(%s, %s, %s, COMPRESS(%s), %s)",
+        "ADD": "INSERT IGNORE INTO objs values(%s, %s, %s, COMPRESS(%s), %s)",
+        "DEL": "DELETE FROM objs WHERE `oid`=%s AND `repo`=%s",
     }
 
     def __init__(self, repo):
@@ -90,6 +91,11 @@ class MysqlObjectStore(BaseObjectStore):
             o.as_raw_string(), self._repo)
                 for (o, _) in objects)
         cursor.executemany(MysqlObjectStore.statements["ADD"], data)
+
+    @dbcursor
+    def delete_objects(self, object_ids, cursor):
+        cursor.executemany(MysqlObjectStore.statements["DEL"], 
+            ((oid, self._repo) for oid in object_ids))
 
     @dbcursor
     def add_pack(self, cursor):
