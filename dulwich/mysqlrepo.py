@@ -1,7 +1,14 @@
-from dulwich.object_store import BaseObjectStore
-from dulwich.repo import BaseRepo
-from dulwich.refs import RefsContainer
+from io import BytesIO
+
+from dulwich.errors import NoIndexPresent
 from dulwich.mysqlconnection import dbcursor, set_db_url
+from dulwich.object_store import BaseObjectStore
+from dulwich.objects import sha_to_hex
+from dulwich.pack import (PackData, PackInflater, write_pack_header,
+                          write_pack_object, PackIndexer, PackStreamCopier,
+                          compute_file_sha)
+from dulwich.repo import BaseRepo
+from dulwich.refs import RefsContainer, SYMREF
 
 
 class MysqlObjectStore(BaseObjectStore):
@@ -66,16 +73,16 @@ class MysqlObjectStore(BaseObjectStore):
         :return: tuple with numeric type and object contents.
         """
         cursor.execute(MysqlObjectStore.statements["GET"],
-            (self._to_hexsha(name), self._repo))
+                       (self._to_hexsha(name), self._repo))
         row = cursor.fetchone()
         return row
 
     def _add_object(self, obj, cursor):
         data = obj.as_raw_string()
         oid = obj.id
-        tnum = obj.get_type()        
+        tnum = obj.get_type()
         cursor.execute(MysqlObjectStore.statements["ADD"],
-            (oid, tnum, len(data), data, self._repo))
+                       (oid, tnum, len(data), data, self._repo))
 
     @dbcursor
     def add_object(self, obj, cursor):
@@ -87,15 +94,14 @@ class MysqlObjectStore(BaseObjectStore):
 
         :param objects: Iterable over a list of objects.
         """
-        data = ((o.id, o.get_type(), len(o.as_raw_string()),
-            o.as_raw_string(), self._repo)
-                for (o, _) in objects)
+        data = ((o.id, o.get_type(), len(o.as_raw_string()), o.as_raw_string(),
+                 self._repo) for (o, _) in objects)
         cursor.executemany(MysqlObjectStore.statements["ADD"], data)
 
     @dbcursor
     def delete_objects(self, object_ids, cursor):
-        cursor.executemany(MysqlObjectStore.statements["DEL"], 
-            ((oid, self._repo) for oid in object_ids))
+        cursor.executemany(MysqlObjectStore.statements["DEL"],
+                           ((oid, self._repo) for oid in object_ids))
 
     @dbcursor
     def add_pack(self, cursor):
@@ -108,11 +114,13 @@ class MysqlObjectStore(BaseObjectStore):
             call when the pack is finished.
         """
         f = BytesIO()
+
         def commit():
             p = PackData.from_file(BytesIO(f.getvalue()), f.tell())
             f.close()
             for obj in PackInflater.for_pack_data(p):
                 self._add_object(obj, cursor)
+
         def abort():
             pass
         return f, commit, abort
@@ -143,19 +151,20 @@ class MysqlObjectStore(BaseObjectStore):
     def add_thin_pack(self, read_all, read_some):
         """Add a new thin pack to this object store.
 
-        Thin packs are packs that contain deltas with parents that exist outside
-        the pack. Because this object store doesn't support packs, we extract
-        and add the individual objects.
+        Thin packs are packs that contain deltas with parents that exist
+        outside the pack. Because this object store doesn't support packs, we
+        extract and add the individual objects.
 
-        :param read_all: Read function that blocks until the number of requested
-            bytes are read.
+        :param read_all: Read function that blocks until the number of
+            requested bytes are read.
         :param read_some: Read function that returns at least one byte, but may
             not return the number of bytes requested.
         """
         f, commit, abort = self.add_pack()
         try:
             indexer = PackIndexer(f, resolve_ext_ref=self.get_raw)
-            copier = PackStreamCopier(read_all, read_some, f, delta_iter=indexer)
+            copier = PackStreamCopier(read_all, read_some, f,
+                                      delta_iter=indexer)
             copier.verify()
             self._complete_thin_pack(f, indexer)
         except:
@@ -183,7 +192,7 @@ class MysqlRefsContainer(RefsContainer):
         self._repo = repo
         self._peeled = {}
 
-    @dbcursor    
+    @dbcursor
     def allkeys(self, cursor):
         cursor.execute(MysqlRefsContainer.statements["ALL"], (self._repo,))
         return (t[0] for t in cursor.fetchall())
@@ -191,7 +200,7 @@ class MysqlRefsContainer(RefsContainer):
     @dbcursor
     def read_loose_ref(self, name, cursor):
         cursor.execute(MysqlRefsContainer.statements["GET"],
-            (name, self._repo))
+                       (name, self._repo))
         row = cursor.fetchone()
         return row[0] if row else None
 
@@ -200,7 +209,7 @@ class MysqlRefsContainer(RefsContainer):
 
     def _update_ref(self, name, value, cursor):
         cursor.execute(MysqlRefsContainer.statements["ADD"],
-            (name, value, self._repo))
+                       (name, value, self._repo))
 
     @dbcursor
     def set_if_equals(self, name, old_ref, new_ref, cursor):
@@ -226,7 +235,7 @@ class MysqlRefsContainer(RefsContainer):
 
     def _remove_ref(self, name, cursor):
         cursor.execute(MysqlRefsContainer.statements["DEL"],
-            (name, self._repo))
+                       (name, self._repo))
 
     @dbcursor
     def remove_if_equals(self, name, old_ref, cursor):
@@ -250,8 +259,8 @@ class MysqlRepo(BaseRepo):
 
     def __init__(self, name):
         self._name = name
-        BaseRepo.__init__(self,
-            MysqlObjectStore(name), MysqlRefsContainer(name))
+        BaseRepo.__init__(self, MysqlObjectStore(name),
+                          MysqlRefsContainer(name))
         self.bare = True
 
     def open_index(self):
@@ -267,35 +276,35 @@ class MysqlRepo(BaseRepo):
 
     @classmethod
     @dbcursor
-    def _init_db(self, cursor):
-        
+    def _init_db(cls, cursor):
+
         # Object store table.
         sql = ('CREATE TABLE IF NOT EXISTS `objs` ('
-            '  `oid` binary(40) NOT NULL DEFAULT "",'
-            '  `type` tinyint(1) unsigned NOT NULL,'
-            '  `size` bigint(20) unsigned NOT NULL,'
-            '  `data` longblob NOT NULL,'
-            '  `repo` varchar(64) NOT NULL,'
-            '  PRIMARY KEY (`oid`, `repo`),'
-            '  KEY `type` (`type`),'
-            '  KEY `size` (`size`)'
-            ') ENGINE="InnoDB" DEFAULT CHARSET=utf8 COLLATE=utf8_bin')
+               '  `oid` binary(40) NOT NULL DEFAULT "",'
+               '  `type` tinyint(1) unsigned NOT NULL,'
+               '  `size` bigint(20) unsigned NOT NULL,'
+               '  `data` longblob NOT NULL,'
+               '  `repo` varchar(64) NOT NULL,'
+               '  PRIMARY KEY (`oid`, `repo`),'
+               '  KEY `type` (`type`),'
+               '  KEY `size` (`size`)'
+               ') ENGINE="InnoDB" DEFAULT CHARSET=utf8 COLLATE=utf8_bin')
         cursor.execute(sql)
-        
+
         # Reference store table.
         sql = ('CREATE TABLE IF NOT EXISTS `refs` ('
-            '  `ref` varchar(100) NOT NULL DEFAULT "",'
-            '  `value` binary(40) NOT NULL,'
-            '  `repo` varchar(64) NOT NULL,'
-            '  PRIMARY KEY (`ref`, `repo`),'
-            '  KEY `value` (`value`)'
-            ') ENGINE="InnoDB" DEFAULT CHARSET=utf8 COLLATE=utf8_bin')
+               '  `ref` varchar(100) NOT NULL DEFAULT "",'
+               '  `value` binary(40) NOT NULL,'
+               '  `repo` varchar(64) NOT NULL,'
+               '  PRIMARY KEY (`ref`, `repo`),'
+               '  KEY `value` (`value`)'
+               ') ENGINE="InnoDB" DEFAULT CHARSET=utf8 COLLATE=utf8_bin')
         cursor.execute(sql)
 
     @classmethod
     def setup(cls, location):
         set_db_url(location)
-        
+
     @classmethod
     def init_bare(cls, name):
         """Create a new bare repository.
@@ -324,7 +333,7 @@ class MysqlRepo(BaseRepo):
         """List all repository names.
         """
         cursor.execute("SELECT DISTINCT `repo` FROM `objs`")
-        return [t[0] for t in cursor.fetchall()]   
+        return [t[0] for t in cursor.fetchall()]
 
     @classmethod
     @dbcursor

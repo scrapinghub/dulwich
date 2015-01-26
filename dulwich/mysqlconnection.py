@@ -1,6 +1,8 @@
 import os
 import urlparse
-import mysql.connector
+
+from mysql.connector.pooling import MySQLConnectionPool
+from mysql.connector.errors import DatabaseError, PoolError
 
 
 def _parse(url):
@@ -28,21 +30,18 @@ def set_db_url(url):
 
 
 connection_pool = None
-
 POOL_NAME = "PORTIA"
-
 POOL_SIZE = 8
-
 USE_PREPARED_STATEMENTS = False
 
 
 def get_connection():
     global connection_pool
     if not connection_pool:
-        connection_pool = mysql.connector.pooling.MySQLConnectionPool(
-			pool_name=POOL_NAME,
-			pool_size = POOL_SIZE,
-			**DB_CONFIG)
+        connection_pool = MySQLConnectionPool(
+            pool_name=POOL_NAME,
+            pool_size=POOL_SIZE,
+            **DB_CONFIG)
     connection = connection_pool.get_connection()
     cursor = connection.cursor()
     cursor.execute('SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED;')
@@ -50,6 +49,24 @@ def get_connection():
     return connection
 
 
+def replinsh_pool(func):
+    '''When no connections are available refill the queue to handle connections
+    that may have been destroyed accidentally'''
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except PoolError:
+            for i in range(POOL_SIZE):
+                if connection_pool._cnx_queue.full():
+                    break
+                connection_pool.add_connection()
+            return func(*args, **kwargs)
+
+    wrapper.__name__, wrapper.__doc__ = func.__name__, func.__doc__
+    return wrapper
+
+
+@replinsh_pool
 def dbcursor(func):
     '''A decorator that fully manages the db connection and cursor.
 
@@ -71,9 +88,34 @@ def dbcursor(func):
         finally:
             cursor.close()
             connection.commit()
-            connection.close()
+            try:
+                connection.close()
+            except PoolError:
+                # Connections were replenished so this one can be discarded
+                pass
         return retval
 
-    wrapper.__name__ = func.__name__
-    wrapper.__doc__ = func.__doc__
+    wrapper.__name__, wrapper.__doc__ = func.__name__, func.__doc__
+    return wrapper
+
+
+def retry_operation(retries=3, catches=(DatabaseError,)):
+    '''
+    :param retries: Number of times to attempt the operation
+    :param catches: Which exceptions to catch and trigger a retry
+    '''
+
+    def wrapper(func):
+
+        def wrapped(*args, **kwargs):
+            err = None
+            for _ in range(retries):
+                try:
+                    return func(*args, **kwargs)
+                except catches as e:
+                    err = e
+            raise err
+        wrapped.__name__, wrapped.__doc__ = func.__name__, func.__doc__
+        return wrapped
+
     return wrapper
