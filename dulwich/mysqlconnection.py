@@ -49,24 +49,6 @@ def get_connection():
     return connection
 
 
-def replinsh_pool(func):
-    '''When no connections are available refill the queue to handle connections
-    that may have been destroyed accidentally'''
-    def wrapper(*args, **kwargs):
-        try:
-            return func(*args, **kwargs)
-        except PoolError:
-            for i in range(POOL_SIZE):
-                if connection_pool._cnx_queue.full():
-                    break
-                connection_pool.add_connection()
-            return func(*args, **kwargs)
-
-    wrapper.__name__, wrapper.__doc__ = func.__name__, func.__doc__
-    return wrapper
-
-
-@replinsh_pool
 def dbcursor(func):
     '''A decorator that fully manages the db connection and cursor.
 
@@ -94,6 +76,23 @@ def dbcursor(func):
                 # Connections were replenished so this one can be discarded
                 pass
         return retval
+
+    wrapper.__name__, wrapper.__doc__ = func.__name__, func.__doc__
+    return wrapper
+
+
+def replenishing_cursor(func):
+    '''When no connections are available refill the queue to handle connections
+    that may have been destroyed accidentally'''
+    def wrapper(*args, **kwargs):
+        try:
+            return dbcursor(func)(*args, **kwargs)
+        except PoolError:
+            for i in range(POOL_SIZE):
+                if connection_pool._cnx_queue.full():
+                    break
+                connection_pool.add_connection()
+            return dbcursor(func)(*args, **kwargs)
 
     wrapper.__name__, wrapper.__doc__ = func.__name__, func.__doc__
     return wrapper

@@ -1,7 +1,7 @@
 from io import BytesIO
 
 from dulwich.errors import NoIndexPresent
-from dulwich.mysqlconnection import dbcursor, set_db_url
+from dulwich.mysqlconnection import replenishing_cursor, set_db_url
 from dulwich.object_store import BaseObjectStore
 from dulwich.objects import sha_to_hex
 from dulwich.pack import (PackData, PackInflater, write_pack_header,
@@ -34,14 +34,14 @@ class MysqlObjectStore(BaseObjectStore):
         else:
             raise ValueError("Invalid sha %r" % (sha,))
 
-    @dbcursor
+    @replenishing_cursor
     def _has_sha(self, sha, cursor):
         """Look for the sha in the database."""
         cursor.execute(MysqlObjectStore.statements["HAS"], (sha, self._repo))
         row = cursor.fetchone()
         return row[0] == 1
 
-    @dbcursor
+    @replenishing_cursor
     def _all_shas(self, cursor):
         """Return all db sha keys."""
         cursor.execute(MysqlObjectStore.statements["ALL"], self._repo)
@@ -65,7 +65,7 @@ class MysqlObjectStore(BaseObjectStore):
         """List with pack objects."""
         return []
 
-    @dbcursor
+    @replenishing_cursor
     def get_raw(self, name, cursor):
         """Obtain the raw text for an object.
 
@@ -84,11 +84,11 @@ class MysqlObjectStore(BaseObjectStore):
         cursor.execute(MysqlObjectStore.statements["ADD"],
                        (oid, tnum, len(data), data, self._repo))
 
-    @dbcursor
+    @replenishing_cursor
     def add_object(self, obj, cursor):
         self._add_object(obj, cursor)
 
-    @dbcursor
+    @replenishing_cursor
     def add_objects(self, objects, cursor):
         """Add a set of objects to this object store.
 
@@ -98,12 +98,12 @@ class MysqlObjectStore(BaseObjectStore):
                  self._repo) for (o, _) in objects)
         cursor.executemany(MysqlObjectStore.statements["ADD"], data)
 
-    @dbcursor
+    @replenishing_cursor
     def delete_objects(self, object_ids, cursor):
         cursor.executemany(MysqlObjectStore.statements["DEL"],
                            ((oid, self._repo) for oid in object_ids))
 
-    @dbcursor
+    @replenishing_cursor
     def add_pack(self, cursor):
         """Add a new pack to this object store.
 
@@ -192,12 +192,12 @@ class MysqlRefsContainer(RefsContainer):
         self._repo = repo
         self._peeled = {}
 
-    @dbcursor
+    @replenishing_cursor
     def allkeys(self, cursor):
         cursor.execute(MysqlRefsContainer.statements["ALL"], (self._repo,))
         return (t[0] for t in cursor.fetchall())
 
-    @dbcursor
+    @replenishing_cursor
     def read_loose_ref(self, name, cursor):
         cursor.execute(MysqlRefsContainer.statements["GET"],
                        (name, self._repo))
@@ -211,7 +211,7 @@ class MysqlRefsContainer(RefsContainer):
         cursor.execute(MysqlRefsContainer.statements["ADD"],
                        (name, value, self._repo))
 
-    @dbcursor
+    @replenishing_cursor
     def set_if_equals(self, name, old_ref, new_ref, cursor):
         if old_ref is not None:
             current_ref = self.read_loose_ref(name)
@@ -222,11 +222,11 @@ class MysqlRefsContainer(RefsContainer):
         self._update_ref(realname, new_ref, cursor)
         return True
 
-    @dbcursor
+    @replenishing_cursor
     def set_symbolic_ref(self, name, other, cursor):
         self._update_ref(name, SYMREF + other)
 
-    @dbcursor
+    @replenishing_cursor
     def add_if_new(self, name, ref, cursor):
         if self.read_loose_ref(name):
             return False
@@ -237,7 +237,7 @@ class MysqlRefsContainer(RefsContainer):
         cursor.execute(MysqlRefsContainer.statements["DEL"],
                        (name, self._repo))
 
-    @dbcursor
+    @replenishing_cursor
     def remove_if_equals(self, name, old_ref, cursor):
         if old_ref is not None:
             current_ref = self.read_loose_ref(name)
@@ -275,7 +275,7 @@ class MysqlRepo(BaseRepo):
         return self.refs['refs/heads/master']
 
     @classmethod
-    @dbcursor
+    @replenishing_cursor
     def _init_db(cls, cursor):
 
         # Object store table.
@@ -318,7 +318,7 @@ class MysqlRepo(BaseRepo):
         return cls(name)
 
     @classmethod
-    @dbcursor
+    @replenishing_cursor
     def repo_exists(cls, name, cursor):
         """Checks if a repository exists.
         """
@@ -328,7 +328,7 @@ class MysqlRepo(BaseRepo):
         return row[0] == 1
 
     @classmethod
-    @dbcursor
+    @replenishing_cursor
     def list_repos(cls, cursor):
         """List all repository names.
         """
@@ -336,7 +336,7 @@ class MysqlRepo(BaseRepo):
         return [t[0] for t in cursor.fetchall()]
 
     @classmethod
-    @dbcursor
+    @replenishing_cursor
     def delete_repo(cls, name, cursor):
         """Deletes a repository.
         """
