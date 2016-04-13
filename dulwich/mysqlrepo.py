@@ -44,7 +44,7 @@ class MysqlObjectStore(BaseObjectStore):
     @replenishing_cursor
     def _all_shas(self, cursor):
         """Return all db sha keys."""
-        cursor.execute(MysqlObjectStore.statements["ALL"], self._repo)
+        cursor.execute(MysqlObjectStore.statements["ALL"], (self._repo,))
         shas = (t[0] for t in cursor.fetchall())
         return shas
 
